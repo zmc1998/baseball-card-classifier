@@ -17,6 +17,7 @@ from torchvision import models, transforms
 # 模型文件：放在本目录下即可被识别，缺一个也能只用另一个
 FOIL_MODEL = "foil.pt"
 COLOR_MODEL = "color.pt"
+MATERIAL_MODEL = "material.pt"
 LEGACY_MODEL = "model.pt"          # 旧版单模型部署的文件名，作为工艺模型的回退
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -36,6 +37,17 @@ FOIL_DESC = {
     "Negative Refractor": "反色（底片效果）",
     "Sepia Refractor": "棕褐调",
     "SuperFractor": "大面积漩涡金箔，固定 1/1",
+}
+
+# 材质的中文名 + 最强识别信号
+MATERIAL_DESC = {
+    "paper":     ("纸质", "表面漫反射 + 边缘纤维断面"),
+    "chrome":    ("镀铬", "镜面高光 + 边缘涂层反光"),
+    "foilboard": ("箔板", "整卡金属箔面，无纸白"),
+    "acetate":   ("透明片", "透光性，背景透出扫描仪底色"),
+    "canvas":    ("布纹", "布纹织理，表面凹凸"),
+    "wood":      ("木质", "木纹走向 + 暖色调"),
+    "aluminum":  ("印版", "半色调网点 + 金属边缘 + 手工裁切毛刺"),
 }
 
 # 颜色的中文名 + 展示用色块
@@ -113,7 +125,8 @@ def load_all():
     """返回 {"foil": bundle, "color": bundle}，缺失的模型不出现在字典里。"""
     found = {}
     for want, candidates in (("foil", [FOIL_MODEL, LEGACY_MODEL]),
-                             ("color", [COLOR_MODEL])):
+                             ("color", [COLOR_MODEL]),
+                             ("material", [MATERIAL_MODEL])):
         for p in candidates:
             if not os.path.exists(p):
                 continue
@@ -149,6 +162,9 @@ def label_of(task, name):
     if task == "color":
         cn = COLOR_DESC.get(name, ("", ""))[0]
         return f"{name}" + (f"（{cn}）" if cn else "")
+    if task == "material":
+        cn = MATERIAL_DESC.get(name, ("", ""))[0]
+        return f"{name}" + (f"（{cn}）" if cn else "")
     return name
 
 
@@ -160,10 +176,20 @@ def render_result(task, bundle, probs, top_n):
     best_p = float(probs[order[0]])
     second_p = float(probs[order[1]]) if len(order) > 1 else 0.0
 
-    head = "🎨 颜色" if task == "color" else "✨ 工艺"
+    head = {"color": "🎨 颜色", "material": "🧱 材质"}.get(task, "✨ 工艺")
     st.markdown(f"##### {head}")
 
-    if task == "color":
+    if task == "material":
+        st.markdown(
+            f"<div style='font-size:1.5rem;font-weight:600;line-height:1.9'>"
+            f"{label_of(task, best)}"
+            f"<span style='font-size:1rem;font-weight:400;opacity:.65'>"
+            f" &nbsp;{best_p:.1%}</span></div>",
+            unsafe_allow_html=True)
+        sig = MATERIAL_DESC.get(best, ("", ""))[1]
+        if sig:
+            st.caption(f"识别信号：{sig}")
+    elif task == "color":
         st.markdown(
             f"<div style='font-size:1.5rem;font-weight:600;line-height:1.9'>"
             f"{swatch(best)}{label_of(task, best)}"
@@ -328,8 +354,8 @@ bundles = load_all()
 if not bundles:
     st.error(
         "没有找到可用的模型文件。\n\n"
-        f"请把训练好的模型放到本目录：工艺模型命名为 `{FOIL_MODEL}`，"
-        f"颜色模型命名为 `{COLOR_MODEL}`。"
+        f"请把训练好的模型放到本目录：工艺 `{FOIL_MODEL}`、"
+        f"颜色 `{COLOR_MODEL}`、材质 `{MATERIAL_MODEL}`。"
     )
     st.stop()
 
@@ -340,17 +366,16 @@ st.markdown('<div class="fixed-header">🎴 棒球卡属性识别</div>',
 left, right = st.columns([1, 1.9], gap="large")
 
 with left:
-    available = [t for t in ("foil", "color") if t in bundles]
-    names = {"foil": "工艺 Foil", "color": "颜色 Color"}
+    available = [t for t in ("foil", "color", "material") if t in bundles]
+    names = {"foil": "工艺 Foil", "color": "颜色 Color",
+             "material": "材质 Material"}
 
     st.markdown("##### 识别项目")
     picked = []
     for t in available:
-        acc = bundles[t][2]["val_acc"]
-        suffix = f"（验证 {acc:.1%}）" if acc is not None else ""
-        if st.checkbox(names[t] + suffix, value=True, key=f"use_{t}"):
+        if st.checkbox(names[t], value=True, key=f"use_{t}"):
             picked.append(t)
-    missing = [t for t in ("foil", "color") if t not in bundles]
+    missing = [t for t in ("foil", "color", "material") if t not in bundles]
     if missing:
         st.caption("未加载：" + "、".join(names[t] for t in missing))
 
@@ -363,16 +388,6 @@ with left:
     max_cls = max((len(bundles[t][2]["vocab"][t]) for t in picked), default=5)
     top_n = st.slider("显示候选数", 1, min(8, max_cls), 3)
 
-    with st.expander("模型信息"):
-        for t in available:
-            m = bundles[t][2]
-            st.markdown(f"**{names[t]}**")
-            st.caption(
-                f"{m['arch']} · {m['img_size']}×{m['img_size']} · "
-                f"{len(m['vocab'][t])} 类"
-                + (f" · 验证 {m['val_acc']:.1%}" if m["val_acc"] is not None else "")
-                + f" · `{m['path']}`")
-
     with st.expander("可识别的类别"):
         for t in available:
             st.markdown(f"**{names[t]}**")
@@ -383,6 +398,11 @@ with left:
                         f"<span style='font-size:.82rem;opacity:.8'>"
                         f"{label_of(t, name)}</span></div>",
                         unsafe_allow_html=True)
+                elif t == "material":
+                    cn, sig = MATERIAL_DESC.get(name, ("", ""))
+                    st.caption(f"**{name}**"
+                               + (f"（{cn}）" if cn else "")
+                               + (f" — {sig}" if sig else ""))
                 else:
                     d = FOIL_DESC.get(name, "")
                     st.caption(f"**{name}**" + (f" — {d}" if d else ""))
@@ -413,7 +433,7 @@ with right:
                 # 两项都选时，先给出合成命名（与文件命名体系一致）
                 if len(picked) > 1:
                     parts = []
-                    for t in ("color", "foil"):
+                    for t in ("color", "foil", "material"):
                         if t in results:
                             cls = bundles[t][2]["vocab"][t]
                             parts.append(cls[int(torch.argmax(results[t]))])
