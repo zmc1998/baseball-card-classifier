@@ -196,12 +196,42 @@ def render_result(task, bundle, probs, top_n):
 # ---------------- 页面 ----------------
 st.set_page_config(page_title="棒球卡属性识别", page_icon="🎴", layout="wide")
 
-# Streamlit 的 file_uploader 只在自身区域接收拖放，页面其他位置的 drop
-# 事件拿不到（组件在 iframe 内）。所以把投放区做大做显眼，提高命中率。
+# 布局与投放区样式。两点说明：
+# 1) file_uploader 只在自身区域接收拖放，页面其他位置的 drop 事件拿不到
+#    （组件在 iframe 内），所以把投放区做大做显眼来提高命中率。
+# 2) 左栏 sticky 固定、右栏独立滚动，避免左侧控件被结果列表推走。
 st.markdown("""
 <style>
+/* 页面本身不滚动，滚动交给右栏 */
+section.main > div.block-container{
+    padding-top: 2.2rem;
+    padding-bottom: 1rem;
+    max-width: 100%;
+}
+
+/* 左栏：固定在视口顶部，内容超高时自己滚 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child{
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    padding-right: .85rem;
+    border-right: 1px solid rgba(130,130,140,.22);
+    scrollbar-width: thin;
+}
+
+/* 右栏：结果区独立滚动 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child{
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    padding-left: .4rem;
+    scrollbar-width: thin;
+}
+
+/* 投放区：加大、虚线、hover 高亮 */
 section[data-testid="stFileUploaderDropzone"]{
-    min-height: 190px;
+    min-height: 132px;
     border: 2px dashed rgba(130,130,140,.55);
     border-radius: 12px;
     background: rgba(130,130,140,.05);
@@ -218,6 +248,13 @@ section[data-testid="stFileUploaderDropzone"] > div{
 div[data-testid="stFileUploaderDropzoneInstructions"]{
     align-items: center;
     text-align: center;
+}
+
+/* 已上传文件列表：限高并可滚，别把下方控件挤出视野 */
+div[data-testid="stFileUploaderFileList"]{
+    max-height: 168px;
+    overflow-y: auto;
+    scrollbar-width: thin;
 }
 </style>
 """, unsafe_allow_html=True)
