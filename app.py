@@ -202,31 +202,57 @@ st.set_page_config(page_title="棒球卡属性识别", page_icon="🎴", layout=
 # 2) 左栏 sticky 固定、右栏独立滚动，避免左侧控件被结果列表推走。
 st.markdown("""
 <style>
-/* 页面本身不滚动，滚动交给右栏 */
 section.main > div.block-container{
-    padding-top: 2.2rem;
+    padding-top: 4.2rem;
     padding-bottom: 1rem;
     max-width: 100%;
 }
 
-/* 左栏：固定在视口顶部，内容超高时自己滚 */
+/* 标题：用自绘的固定条，不依赖 Streamlit 的 DOM 结构
+   （h1 外层容器的 data-testid 会随版本变化，:has() 选择器不可靠）。 */
+div.fixed-header{
+    position: fixed;
+    top: 0; left: 0;
+    /* 右边留出 Streamlit 顶栏（Deploy / 三点菜单）的位置，别盖住它 */
+    right: 12rem;
+    z-index: 998;
+    padding: .8rem 1.2rem .75rem;
+    background: var(--background-color, #fff);
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+/* 顶栏保持在标题之上，只把它的背景改透明以免挡住标题文字 */
+header[data-testid="stHeader"]{
+    background: transparent;
+    z-index: 999;
+}
+/* 标题条下方的分隔线单独画满整宽 */
+div.fixed-header::after{
+    content: "";
+    position: fixed;
+    left: 0; right: 0; top: 3.35rem;
+    border-bottom: 1px solid rgba(130,130,140,.25);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    pointer-events: none;
+}
+
+/* 左栏：sticky 钉住。top 留出标题高度，别贴到视口最顶把标题盖掉。
+   高度同步减去这段偏移，内容超出时左栏内部自己滚。 */
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child{
     position: sticky;
-    top: 0;
+    top: 4.6rem;
     align-self: flex-start;
-    max-height: calc(100vh - 3rem);
+    max-height: calc(100vh - 6rem);
     overflow-y: auto;
     padding-right: .85rem;
     border-right: 1px solid rgba(130,130,140,.22);
     scrollbar-width: thin;
+    z-index: 5;
 }
 
-/* 右栏：结果区独立滚动 */
+/* 右栏：不独立滚动，跟随页面整体滚动（内部再套一层滚动条会很别扭） */
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child{
-    max-height: calc(100vh - 3rem);
-    overflow-y: auto;
     padding-left: .4rem;
-    scrollbar-width: thin;
 }
 
 /* 投放区：加大、虚线、hover 高亮 */
@@ -252,10 +278,49 @@ div[data-testid="stFileUploaderDropzoneInstructions"]{
 
 /* 已上传文件列表：限高并可滚，别把下方控件挤出视野 */
 div[data-testid="stFileUploaderFileList"]{
-    max-height: 168px;
+    max-height: 200px;
     overflow-y: auto;
     scrollbar-width: thin;
 }
+
+/* 组合结果条：静态显示。右栏不独立滚动，钉住反而会盖住下方内容 */
+div.combo-bar{
+    margin: -.4rem 0 .9rem;
+    padding: .7rem .95rem;
+    border-radius: 10px;
+    border: 1px solid rgba(70,130,220,.35);
+    background: rgba(70,130,220,.10);
+    backdrop-filter: blur(6px);
+}
+div.combo-bar .combo-label{
+    font-size: .72rem; letter-spacing: .04em;
+    opacity: .7; margin-bottom: .15rem;
+}
+div.combo-bar .combo-value{
+    font-size: 1.15rem; font-weight: 650;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 右栏内部：卡片原图那一列钉住，结果长时图片不会滚出视野。
+   用 stImageContainer 作为锚点，避免误伤左栏的缩略图网格。 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child
+  div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child{
+    position: sticky;
+    top: 4.6rem;
+    align-self: flex-start;
+    max-height: calc(100vh - 6rem);
+    z-index: 5;
+}
+/* 卡图本身限高，超长图不会把 sticky 区撑出视口 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child
+  div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child
+  img{
+    max-height: calc(100vh - 10rem);
+    width: auto;
+    margin: 0 auto;
+    display: block;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -268,7 +333,8 @@ if not bundles:
     )
     st.stop()
 
-st.title("🎴 棒球卡属性识别")
+st.markdown('<div class="fixed-header">🎴 棒球卡属性识别</div>',
+            unsafe_allow_html=True)
 
 # 左：上传与设置；右：结果
 left, right = st.columns([1, 1.9], gap="large")
@@ -351,8 +417,11 @@ with right:
                         if t in results:
                             cls = bundles[t][2]["vocab"][t]
                             parts.append(cls[int(torch.argmax(results[t]))])
-                    st.markdown("##### 组合结果")
-                    st.code("+".join(parts), language=None)
+                    st.markdown(
+                        '<div class="combo-bar">'
+                        '<div class="combo-label">组合结果</div>'
+                        f'<div class="combo-value">{"+".join(parts)}</div></div>',
+                        unsafe_allow_html=True)
 
                 for j, t in enumerate(picked):
                     if j:
