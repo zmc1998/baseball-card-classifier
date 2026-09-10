@@ -1,17 +1,6 @@
-# 棒球卡箔纹识别
+# 棒球卡属性识别 · 部署
 
-上传棒球卡图片，识别箔纹工艺（Refractor / X-fractor / Mojo Refractor 等）。
-
-## 文件说明
-
-```
-app.py             Streamlit 应用
-requirements.txt   依赖
-model.pt           训练好的模型（需自己放进来）
-```
-
-类别名称从 `model.pt` 内部的 `vocab` 读取，**不需要在代码里手写**，
-所以换模型时只替换 `model.pt` 即可，不用改 `app.py`。
+Streamlit 应用，工艺(foil)和颜色(color)两个模型可单独用也可组合用。
 
 ## 本地运行
 
@@ -20,57 +9,53 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-打开 http://localhost:8501
+## 模型文件
+
+放在本目录下，按文件名识别：
+
+| 文件 | 说明 |
+|---|---|
+| `foil.pt` | 工艺模型，13 类 |
+| `color.pt` | 颜色模型，24 类 |
+| `model.pt` | 旧版单模型部署的文件名，作为工艺模型的回退 |
+
+缺一个也能启动，只是左侧少一个可勾选项。应用按模型文件里记录的
+`tasks` 字段归位，不靠文件名判断任务类型。
+
+更新模型：
+
+```bash
+cp ../foil/models/foil_v3_82.pt foil.pt
+cp ../color/models/color.pt     color.pt
+```
+
+## 布局
+
+- **左栏**：勾选识别项目、上传图片、候选数、模型信息、类别列表
+- **右栏**：每张图左边原图、右边结果
+
+两项都勾选时，右栏顶部给出 `颜色+工艺` 的合成命名，与
+`raw_data/rename_*.py` 生成的文件命名体系一致（用 `+` 拼接）。
+
+## 结果提示
+
+- 最高置信度 < 50% → 提示置信度偏低
+- 第一与第二候选相差 < 15% → 提示建议人工复核
+
+颜色类别带中文名和色块；工艺类别带纹理特征说明。
 
 ## 部署到 Streamlit Cloud
 
-1. **准备模型文件**
+仓库需要包含 `app.py`、`requirements.txt` 和两个 `.pt`（各约 16MB）。
+`requirements.txt` 里指定了 CPU 版 torch，避免云端拉 CUDA 包。
 
-   把要用的模型复制成 `model.pt`，和 `app.py` 放同一层：
+模型定义 `MultiHeadNet` 与 `common/train.py` 保持一致；推理时
+`weights=None` 不下载 ImageNet 预训练权重（随后会被微调权重整体覆盖，
+且云端拉取慢且容易失败）。
 
-   ```bash
-   cp ../train/ft_v2.pt model.pt
-   ```
+## 当前模型
 
-2. **推到 GitHub**
-
-   ```bash
-   git init
-   git add app.py requirements.txt README.md model.pt
-   git commit -m "deploy foil classifier"
-   git branch -M main
-   git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-   git push -u origin main
-   ```
-
-   模型约 16MB，在 GitHub 100MB 单文件限制内，**不需要 Git LFS**。
-
-3. **在 Streamlit Cloud 部署**
-
-   打开 https://share.streamlit.io → New app → 选仓库和分支 →
-   Main file path 填 `app.py` → Deploy。
-
-   如果三个文件放在仓库的 `deploy/` 子目录里，Main file path 就填 `deploy/app.py`。
-
-## 常见问题
-
-**部署后报找不到 model.pt**
-
-`.gitignore` 里如果有 `*.pt` 会把模型挡掉。确认它真的被提交了：
-
-```bash
-git ls-files | grep model.pt
-```
-
-没有输出就说明没提交，用 `git add -f model.pt` 强制加入。
-
-**依赖安装很慢或内存超限**
-
-`requirements.txt` 第一行的 `--extra-index-url .../whl/cpu` 是必须的，
-它让 pip 装 CPU 版 torch（约 200MB）。去掉这行会装带 CUDA 的版本（约 2GB），
-Streamlit Cloud 免费额度装不下。
-
-**换模型后类别不对**
-
-不会发生：类别来自模型文件本身。但要注意不同模型的类别数可能不同，
-例如 `model.pt` 只有 10 类，`ft_v2.pt` 有 13 类。侧边栏会显示当前模型的实际类别。
+| 任务 | 类别数 | 验证集准确率 |
+|---|---|---|
+| 工艺 | 13 | 82.3% |
+| 颜色 | 24 | 71.8% |
